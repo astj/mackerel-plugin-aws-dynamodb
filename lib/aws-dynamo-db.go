@@ -149,7 +149,19 @@ func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
 			log.Printf("%s: %s", met, err)
 		}
 	}
-	return stat, nil
+	return transformMetrics(stat), nil
+}
+
+// TransformMetrics converts some of datapoints to post differences of two metrics
+func transformMetrics(stats map[string]interface{}) map[string]interface{} {
+	// Although stats are interface{}, those values from cloudwatch.Datapoint are guaranteed to be numerical
+	if consumedReadCapacitySum, ok := stats["ConsumedReadCapacityUnitsSum"].(float64); ok {
+		stats["ConsumedReadCapacityUnitsNormalized"] = consumedReadCapacitySum / 60.0
+	}
+	if consumedWriteCapacitySum, ok := stats["ConsumedWriteCapacityUnitsSum"].(float64); ok {
+		stats["ConsumedWriteCapacityUnitsNormalized"] = consumedWriteCapacitySum / 60.0
+	}
+	return stats
 }
 
 // GraphDefinition of DynamoDBPlugin
@@ -160,20 +172,20 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 	var graphdef = map[string]mp.Graphs{
 		"ReadCapacity": {
 			Label: (labelPrefix + " Read Capacity Units"),
-			Unit:  "integer",
+			Unit:  "float",
 			Metrics: []mp.Metrics{
 				{Name: "ProvisionedReadCapacityUnits", Label: "Provisioned"},
-				{Name: "ConsumedReadCapacityUnitsSum", Label: "Consumed (Sum)"},
-				{Name: "ConsumedReadCapacityUnitsAverage", Label: "Consumed (Average)"},
+				{Name: "ConsumedReadCapacityUnitsNormalized", Label: "Consumed"},
+				{Name: "ConsumedReadCapacityUnitsAverage", Label: "Consumed (Average per request)"},
 			},
 		},
 		"WriteCapacity": {
 			Label: (labelPrefix + " Write Capacity Units"),
-			Unit:  "integer",
+			Unit:  "float",
 			Metrics: []mp.Metrics{
 				{Name: "ProvisionedWriteCapacityUnits", Label: "Provisioned"},
-				{Name: "ConsumedWriteCapacityUnitsSum", Label: "Consumed (Sum)"},
-				{Name: "ConsumedWriteCapacityUnitsAverage", Label: "Consumed (Average)"},
+				{Name: "ConsumedWriteCapacityUnitsNormalized", Label: "Consumed"},
+				{Name: "ConsumedWriteCapacityUnitsAverage", Label: "Consumed (Average per request)"},
 			},
 		},
 		"ThrottledEvents": {
