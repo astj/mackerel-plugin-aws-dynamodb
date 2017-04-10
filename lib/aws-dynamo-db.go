@@ -133,10 +133,6 @@ func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
 		{CloudWatchName: "ProvisionedReadCapacityUnits", MackerelName: "ProvisionedReadCapacityUnits", Type: metricsTypeMinimum},
 		{CloudWatchName: "ProvisionedWriteCapacityUnits", MackerelName: "ProvisionedWriteCapacityUnits", Type: metricsTypeMinimum},
 		{CloudWatchName: "ReadThrottleEvents", MackerelName: "ReadThrottleEvents", Type: metricsTypeSum},
-		{CloudWatchName: "ReturnedItemCount", MackerelName: "ReturnedItemCountAverage", Type: metricsTypeAverage},
-		{CloudWatchName: "ReturnedItemCount", MackerelName: "ReturnedItemCountMinimum", Type: metricsTypeMinimum},
-		{CloudWatchName: "ReturnedItemCount", MackerelName: "ReturnedItemCountMaximum", Type: metricsTypeMaximum},
-		{CloudWatchName: "ReturnedItemCount", MackerelName: "ReturnedItemCountSum", Type: metricsTypeSum},
 		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencyMinimum", Type: metricsTypeMinimum},
 		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencyMaximum", Type: metricsTypeMaximum},
 		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencyAverage", Type: metricsTypeAverage},
@@ -197,16 +193,6 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 				{Name: "UserErrors", Label: "User Error"},
 				{Name: "ThrottledRequests", Label: "Throttled"},
 				{Name: "SuccessfulRequestLatencySampleCount", Label: "Success"},
-			},
-		},
-		"ReturnedItemCount": {
-			Label: (labelPrefix + " Returned Item Counts"),
-			Unit:  "integer",
-			Metrics: []mp.Metrics{
-				{Name: "ReturnedItemCountAverage", Label: "Average"},
-				{Name: "ReturnedItemCountMaximum", Label: "Maximum"},
-				{Name: "ReturnedItemCountMinimum", Label: "Minimum"},
-				{Name: "ReturnedItemCountSum", Label: "Sum"},
 			},
 		},
 		"SuccessfulRequestLatency": {
