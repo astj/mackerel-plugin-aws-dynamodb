@@ -133,12 +133,7 @@ func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
 		{CloudWatchName: "ProvisionedReadCapacityUnits", MackerelName: "ProvisionedReadCapacityUnits", Type: metricsTypeMinimum},
 		{CloudWatchName: "ProvisionedWriteCapacityUnits", MackerelName: "ProvisionedWriteCapacityUnits", Type: metricsTypeMinimum},
 		{CloudWatchName: "ReadThrottleEvents", MackerelName: "ReadThrottleEvents", Type: metricsTypeSum},
-		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencyMinimum", Type: metricsTypeMinimum},
-		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencyMaximum", Type: metricsTypeMaximum},
-		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencyAverage", Type: metricsTypeAverage},
-		{CloudWatchName: "SuccessfulRequestLatency", MackerelName: "SuccessfulRequestLatencySampleCount", Type: metricsTypeSampleCount},
 		{CloudWatchName: "SystemErrors", MackerelName: "SystemErrors", Type: metricsTypeSum},
-		{CloudWatchName: "ThrottledRequests", MackerelName: "ThrottledRequests", Type: metricsTypeSum}, // can take Operation
 		{CloudWatchName: "UserErrors", MackerelName: "UserErrors", Type: metricsTypeSum},
 		{CloudWatchName: "WriteThrottleEvents", MackerelName: "WriteThrottleEvents", Type: metricsTypeSum},
 	} {
@@ -201,19 +196,6 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
 				{Name: "ConditionalCheckFailedRequests", Label: "ConditionalCheck Failure"},
-				{Name: "SystemErrors", Label: "System Error"},
-				{Name: "UserErrors", Label: "User Error"},
-				{Name: "ThrottledRequests", Label: "Throttled"},
-				{Name: "SuccessfulRequestLatencySampleCount", Label: "Success"},
-			},
-		},
-		"SuccessfulRequestLatency": {
-			Label: (labelPrefix + " Latency of Succesful Requests"),
-			Unit:  "integer",
-			Metrics: []mp.Metrics{
-				{Name: "SuccessfulRequestLatencyAverage", Label: "Average"},
-				{Name: "SuccessfulRequestLatencyMaximum", Label: "Maximum"},
-				{Name: "SuccessfulRequestLatencyMinimum", Label: "Minimum"},
 			},
 		},
 	}
