@@ -1,7 +1,6 @@
 package mpawsdynamodb
 
 import (
-	"errors"
 	"flag"
 	"log"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/cloudwatch"
+	"github.com/aws/aws-sdk-go/service/cloudwatch/cloudwatchiface"
 	mp "github.com/mackerelio/go-mackerel-plugin-helper"
 )
 
@@ -23,10 +23,15 @@ const (
 	metricsTypeSampleCount = "SampleCount"
 )
 
-type metrics struct {
+// has 1 CloudWatch MetricName and corresponding N Mackerel Metrics
+type metricsGroup struct {
 	CloudWatchName string
-	MackerelName   string
-	Type           string
+	Metrics        []metric
+}
+
+type metric struct {
+	MackerelName string
+	Type         string
 }
 
 // DynamoDBPlugin mackerel plugin for aws kinesis
@@ -69,82 +74,109 @@ func (p *DynamoDBPlugin) prepare() error {
 }
 
 // getLastPoint fetches a CloudWatch metric and parse
-func (p DynamoDBPlugin) getLastPoint(metric metrics) (float64, error) {
+func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, tableName string, metric metricsGroup) (*cloudwatch.Datapoint, error) {
 	now := time.Now()
-
-	dimensions := []*cloudwatch.Dimension{
-		{
-			Name:  aws.String("TableName"),
-			Value: aws.String(p.TableName),
-		},
+	statsInput := make([]*string, len(metric.Metrics))
+	for i, typ := range metric.Metrics {
+		statsInput[i] = aws.String(typ.Type)
 	}
-
-	response, err := p.CloudWatch.GetMetricStatistics(&cloudwatch.GetMetricStatisticsInput{
-		Dimensions: dimensions,
-		StartTime:  aws.Time(now.Add(time.Duration(480) * time.Second * -1)), // 8 min, since some metrics are aggregated over 5 min
+	input := &cloudwatch.GetMetricStatisticsInput{
+		// 8 min, since some metrics are aggregated over 5 min
+		StartTime:  aws.Time(now.Add(time.Duration(480) * time.Second * -1)),
 		EndTime:    aws.Time(now),
 		MetricName: aws.String(metric.CloudWatchName),
 		Period:     aws.Int64(60),
-		Statistics: []*string{aws.String(metric.Type)},
+		Statistics: statsInput,
 		Namespace:  aws.String(namespace),
-	})
+	}
+	input.Dimensions = []*cloudwatch.Dimension{{
+		Name:  aws.String("TableName"),
+		Value: aws.String(tableName),
+	}}
+	response, err := cw.GetMetricStatistics(input)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
 	datapoints := response.Datapoints
 	if len(datapoints) == 0 {
-		return 0, errors.New("fetched no datapoints")
+		return nil, nil
 	}
 
 	latest := new(time.Time)
-	var latestVal float64
+	var latestDp *cloudwatch.Datapoint
 	for _, dp := range datapoints {
 		if dp.Timestamp.Before(*latest) {
 			continue
 		}
 
 		latest = dp.Timestamp
-		switch metric.Type {
-		case metricsTypeAverage:
-			latestVal = *dp.Average
-		case metricsTypeSum:
-			latestVal = *dp.Sum
-		case metricsTypeMaximum:
-			latestVal = *dp.Maximum
-		case metricsTypeMinimum:
-			latestVal = *dp.Minimum
-		}
+		latestDp = dp
 	}
 
-	return latestVal, nil
+	return latestDp, nil
+}
+
+func mergeStatsFromDatapoint(stats map[string]interface{}, dp *cloudwatch.Datapoint, mg metricsGroup) map[string]interface{} {
+	if dp != nil {
+		for _, met := range mg.Metrics {
+			switch met.Type {
+			case metricsTypeAverage:
+				stats[met.MackerelName] = *dp.Average
+			case metricsTypeSum:
+				stats[met.MackerelName] = *dp.Sum
+			case metricsTypeMaximum:
+				stats[met.MackerelName] = *dp.Maximum
+			case metricsTypeMinimum:
+				stats[met.MackerelName] = *dp.Minimum
+			}
+		}
+	}
+	return stats
+}
+
+var defaultMetricsGroup = []metricsGroup{
+	{CloudWatchName: "ConditionalCheckFailedRequests", Metrics: []metric{
+		{MackerelName: "ConditionalCheckFailedRequests", Type: metricsTypeSum},
+	}},
+	{CloudWatchName: "ConsumedReadCapacityUnits", Metrics: []metric{
+		{MackerelName: "ConsumedReadCapacityUnitsSum", Type: metricsTypeSum},
+		{MackerelName: "ConsumedReadCapacityUnitsAverage", Type: metricsTypeAverage},
+	}},
+	{CloudWatchName: "ConsumedWriteCapacityUnits", Metrics: []metric{
+		{MackerelName: "ConsumedWriteCapacityUnitsSum", Type: metricsTypeSum},
+		{MackerelName: "ConsumedWriteCapacityUnitsAverage", Type: metricsTypeAverage},
+	}},
+	{CloudWatchName: "ProvisionedReadCapacityUnits", Metrics: []metric{
+		{MackerelName: "ProvisionedReadCapacityUnits", Type: metricsTypeMinimum},
+	}},
+	{CloudWatchName: "ProvisionedWriteCapacityUnits", Metrics: []metric{
+		{MackerelName: "ProvisionedWriteCapacityUnits", Type: metricsTypeMinimum},
+	}},
+	{CloudWatchName: "SystemErrors", Metrics: []metric{
+		{MackerelName: "SystemErrors", Type: metricsTypeSum},
+	}},
+	{CloudWatchName: "UserErrors", Metrics: []metric{
+		{MackerelName: "UserErrors", Type: metricsTypeSum},
+	}},
+	{CloudWatchName: "WriteThrottleEvents", Metrics: []metric{
+		{MackerelName: "WriteThrottleEvents", Type: metricsTypeSum},
+	}},
 }
 
 // FetchMetrics fetch the metrics
 func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
-	stat := make(map[string]interface{})
+	stats := make(map[string]interface{})
 
-	for _, met := range [...]metrics{
-		{CloudWatchName: "ConditionalCheckFailedRequests", MackerelName: "ConditionalCheckFailedRequests", Type: metricsTypeSum},
-		{CloudWatchName: "ConsumedReadCapacityUnits", MackerelName: "ConsumedReadCapacityUnitsSum", Type: metricsTypeSum},
-		{CloudWatchName: "ConsumedReadCapacityUnits", MackerelName: "ConsumedReadCapacityUnitsAverage", Type: metricsTypeAverage},
-		{CloudWatchName: "ConsumedWriteCapacityUnits", MackerelName: "ConsumedWriteCapacityUnitsSum", Type: metricsTypeSum},
-		{CloudWatchName: "ConsumedWriteCapacityUnits", MackerelName: "ConsumedWriteCapacityUnitsAverage", Type: metricsTypeAverage},
-		{CloudWatchName: "ProvisionedReadCapacityUnits", MackerelName: "ProvisionedReadCapacityUnits", Type: metricsTypeMinimum},
-		{CloudWatchName: "ProvisionedWriteCapacityUnits", MackerelName: "ProvisionedWriteCapacityUnits", Type: metricsTypeMinimum},
-		{CloudWatchName: "ReadThrottleEvents", MackerelName: "ReadThrottleEvents", Type: metricsTypeSum},
-		{CloudWatchName: "SystemErrors", MackerelName: "SystemErrors", Type: metricsTypeSum},
-		{CloudWatchName: "UserErrors", MackerelName: "UserErrors", Type: metricsTypeSum},
-		{CloudWatchName: "WriteThrottleEvents", MackerelName: "WriteThrottleEvents", Type: metricsTypeSum},
-	} {
-		v, err := p.getLastPoint(met)
+	for _, met := range defaultMetricsGroup {
+		v, err := getLastPointFromCloudWatch(p.CloudWatch, p.TableName, met)
 		if err == nil {
-			stat[met.MackerelName] = v
+			stats = mergeStatsFromDatapoint(stats, v, met)
 		} else {
 			log.Printf("%s: %s", met, err)
 		}
 	}
-	return transformMetrics(stat), nil
+	return transformMetrics(stats), nil
 }
 
 // TransformMetrics converts some of datapoints to post differences of two metrics
