@@ -223,11 +223,11 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 				{Name: "WriteThrottleEvents", Label: "Write"},
 			},
 		},
-		"Requests": {
-			Label: (labelPrefix + " Requests"),
+		"ConditionalCheckFailedRequests": {
+			Label: (labelPrefix + " ConditionalCheckFailedRequests"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "ConditionalCheckFailedRequests", Label: "ConditionalCheck Failure"},
+				{Name: "ConditionalCheckFailedRequests", Label: "Counts"},
 			},
 		},
 	}
