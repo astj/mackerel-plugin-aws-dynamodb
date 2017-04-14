@@ -81,7 +81,7 @@ func (p DynamoDBPlugin) getLastPoint(metric metrics) (float64, error) {
 
 	response, err := p.CloudWatch.GetMetricStatistics(&cloudwatch.GetMetricStatisticsInput{
 		Dimensions: dimensions,
-		StartTime:  aws.Time(now.Add(time.Duration(180) * time.Second * -1)), // 3 min
+		StartTime:  aws.Time(now.Add(time.Duration(480) * time.Second * -1)), // 8 min, since some metrics are aggregated over 5 min
 		EndTime:    aws.Time(now),
 		MetricName: aws.String(metric.CloudWatchName),
 		Period:     aws.Int64(60),
