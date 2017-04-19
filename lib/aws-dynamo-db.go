@@ -73,8 +73,73 @@ func (p *DynamoDBPlugin) prepare() error {
 	return nil
 }
 
+// fetch metrics which takes "Operation" dimensions querying both ListMetrics and GetMetricsStatistics
+func fetchOperationWildcardMetrics(cw cloudwatchiface.CloudWatchAPI, mg metricsGroup, baseDimensions []*cloudwatch.Dimension) (map[string]interface{}, error) {
+	// get available dimensions
+	dimensionFilters := make([]*cloudwatch.DimensionFilter, len(baseDimensions))
+	for i, dimension := range baseDimensions {
+		dimensionFilters[i] = &cloudwatch.DimensionFilter{
+			Name:  dimension.Name,
+			Value: dimension.Value,
+		}
+	}
+	input := &cloudwatch.ListMetricsInput{
+		Dimensions: dimensionFilters,
+		Namespace:  aws.String(namespace),
+		MetricName: aws.String(mg.CloudWatchName),
+	}
+	// ListMetrics can retrieve up to 500 metrics, but DynamoDB Operations are apparently less than 500
+	res, err := cw.ListMetrics(input)
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make(map[string]interface{})
+
+	// get datapoints with retrieved dimensions
+	for _, cwMetric := range res.Metrics {
+		dimensions := cwMetric.Dimensions
+		// extract operation name
+		var operation *string
+		for _, d := range dimensions {
+			if *d.Name == "Operation" {
+				operation = d.Value
+				break
+			}
+		}
+		if operation == nil {
+			log.Printf("Unexpected dimension, skip: %s", dimensions)
+			continue
+		}
+
+		dp, err := getLastPointFromCloudWatch(cw, mg, dimensions)
+		if err != nil {
+			return nil, nil
+		}
+		if dp != nil {
+			for _, met := range mg.Metrics {
+				label := strings.Replace(met.MackerelName, "#", *operation, 1)
+				switch met.Type {
+				case metricsTypeAverage:
+					stats[label] = *dp.Average
+				case metricsTypeSum:
+					stats[label] = *dp.Sum
+				case metricsTypeMaximum:
+					stats[label] = *dp.Maximum
+				case metricsTypeMinimum:
+					stats[label] = *dp.Minimum
+				case metricsTypeSampleCount:
+					stats[label] = *dp.SampleCount
+				}
+			}
+		}
+	}
+
+	return stats, nil
+}
+
 // getLastPoint fetches a CloudWatch metric and parse
-func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, tableName string, metric metricsGroup) (*cloudwatch.Datapoint, error) {
+func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, metric metricsGroup, dimensions []*cloudwatch.Dimension) (*cloudwatch.Datapoint, error) {
 	now := time.Now()
 	statsInput := make([]*string, len(metric.Metrics))
 	for i, typ := range metric.Metrics {
@@ -88,11 +153,8 @@ func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, tableName stri
 		Period:     aws.Int64(60),
 		Statistics: statsInput,
 		Namespace:  aws.String(namespace),
+		Dimensions: dimensions,
 	}
-	input.Dimensions = []*cloudwatch.Dimension{{
-		Name:  aws.String("TableName"),
-		Value: aws.String(tableName),
-	}}
 	response, err := cw.GetMetricStatistics(input)
 	if err != nil {
 		return nil, err
@@ -164,14 +226,47 @@ var defaultMetricsGroup = []metricsGroup{
 	}},
 }
 
+var operationalMetricsGroup = []metricsGroup{
+	{CloudWatchName: "SuccessfulRequestLatency", Metrics: []metric{
+		{MackerelName: "SuccessfulRequests.#", Type: metricsTypeSampleCount},
+		{MackerelName: "SuccessfulRequestLatency.#.Minimum", Type: metricsTypeMinimum},
+		{MackerelName: "SuccessfulRequestLatency.#.Maximum", Type: metricsTypeMaximum},
+		{MackerelName: "SuccessfulRequestLatency.#.Average", Type: metricsTypeAverage},
+	}},
+	{CloudWatchName: "ThrottledRequests", Metrics: []metric{
+		{MackerelName: "ThrottledRequests.#", Type: metricsTypeSampleCount},
+	}},
+	{CloudWatchName: "SystemErrors", Metrics: []metric{
+		{MackerelName: "SystemErrors.#", Type: metricsTypeSampleCount},
+	}},
+	{CloudWatchName: "UserErrors", Metrics: []metric{
+		{MackerelName: "UserErrors.#", Type: metricsTypeSampleCount},
+	}},
+}
+
 // FetchMetrics fetch the metrics
 func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
+	tableDimensions := []*cloudwatch.Dimension{{
+		Name:  aws.String("TableName"),
+		Value: aws.String(p.TableName),
+	}}
 	for _, met := range defaultMetricsGroup {
-		v, err := getLastPointFromCloudWatch(p.CloudWatch, p.TableName, met)
+		v, err := getLastPointFromCloudWatch(p.CloudWatch, met, tableDimensions)
 		if err == nil {
 			stats = mergeStatsFromDatapoint(stats, v, met)
+		} else {
+			log.Printf("%s: %s", met, err)
+		}
+	}
+
+	for _, met := range operationalMetricsGroup {
+		operationalStats, err := fetchOperationWildcardMetrics(p.CloudWatch, met, tableDimensions)
+		if err == nil {
+			for name, s := range operationalStats {
+				stats[name] = s
+			}
 		} else {
 			log.Printf("%s: %s", met, err)
 		}
@@ -223,11 +318,48 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 				{Name: "WriteThrottleEvents", Label: "Write"},
 			},
 		},
-		"Requests": {
-			Label: (labelPrefix + " Requests"),
+		"ConditionalCheckFailedRequests": {
+			Label: (labelPrefix + " ConditionalCheckFailedRequests"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "ConditionalCheckFailedRequests", Label: "ConditionalCheck Failure"},
+				{Name: "ConditionalCheckFailedRequests", Label: "Counts"},
+			},
+		},
+		"ThrottledRequests": {
+			Label: (labelPrefix + " ThrottledRequests"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts", Stacked: true},
+			},
+		},
+		"SystemErrors": {
+			Label: (labelPrefix + " SystemErrors"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts", Stacked: true},
+			},
+		},
+		"UserErrors": {
+			Label: (labelPrefix + " UserErrors"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts", Stacked: true},
+			},
+		},
+		"SuccessfulRequests": {
+			Label: (labelPrefix + " SuccessfulRequestLatency"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts"},
+			},
+		},
+		"SuccessfulRequestLatency.#": {
+			Label: (labelPrefix + " SuccessfulRequestLatency"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "Minimum", Label: "Min"},
+				{Name: "Maximum", Label: "Max"},
+				{Name: "Average", Label: "Average"},
 			},
 		},
 	}
