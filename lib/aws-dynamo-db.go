@@ -320,28 +320,28 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 			Label: (labelPrefix + " ThrottledRequests"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "*", Label: "Counts", Stacked: true},
+				{Name: "*", Label: "%1", Stacked: true},
 			},
 		},
 		"SystemErrors": {
 			Label: (labelPrefix + " SystemErrors"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "*", Label: "Counts", Stacked: true},
+				{Name: "*", Label: "%1", Stacked: true},
 			},
 		},
 		"UserErrors": {
 			Label: (labelPrefix + " UserErrors"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "*", Label: "Counts", Stacked: true},
+				{Name: "*", Label: "%1", Stacked: true},
 			},
 		},
 		"SuccessfulRequests": {
 			Label: (labelPrefix + " SuccessfulRequestLatency"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "*", Label: "Counts"},
+				{Name: "*", Label: "%1"},
 			},
 		},
 		"SuccessfulRequestLatency.#": {
