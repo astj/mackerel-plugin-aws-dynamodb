@@ -228,7 +228,10 @@ var defaultMetricsGroup = []metricsGroup{
 
 var operationalMetricsGroup = []metricsGroup{
 	{CloudWatchName: "SuccessfulRequestLatency", Metrics: []metric{
-		{MackerelName: "SuccessfulRequestLatency.#.Count", Type: metricsTypeSampleCount},
+		{MackerelName: "SuccessfulRequests.#", Type: metricsTypeSampleCount},
+		{MackerelName: "SuccessfulRequestLatency.#.Minimum", Type: metricsTypeMinimum},
+		{MackerelName: "SuccessfulRequestLatency.#.Maximum", Type: metricsTypeMaximum},
+		{MackerelName: "SuccessfulRequestLatency.#.Average", Type: metricsTypeAverage},
 	}},
 }
 
@@ -313,11 +316,20 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 				{Name: "ConditionalCheckFailedRequests", Label: "Counts"},
 			},
 		},
+		"SuccessfulRequests": {
+			Label: (labelPrefix + " SuccessfulRequestLatency"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts"},
+			},
+		},
 		"SuccessfulRequestLatency.#": {
 			Label: (labelPrefix + " SuccessfulRequestLatency"),
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
-				{Name: "Count", Label: "Count", Type: "uint64"},
+				{Name: "Minimum", Label: "Min"},
+				{Name: "Maximum", Label: "Max"},
+				{Name: "Average", Label: "Average"},
 			},
 		},
 	}
