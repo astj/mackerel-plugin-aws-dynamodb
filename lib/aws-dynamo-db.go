@@ -73,6 +73,24 @@ func (p *DynamoDBPlugin) prepare() error {
 	return nil
 }
 
+func transformAndAppendDatapoint(dp *cloudwatch.Datapoint, dataType string, label string, stats map[string]interface{}) map[string]interface{} {
+	if dp != nil {
+		switch dataType {
+		case metricsTypeAverage:
+			stats[label] = *dp.Average
+		case metricsTypeSum:
+			stats[label] = *dp.Sum
+		case metricsTypeMaximum:
+			stats[label] = *dp.Maximum
+		case metricsTypeMinimum:
+			stats[label] = *dp.Minimum
+		case metricsTypeSampleCount:
+			stats[label] = *dp.SampleCount
+		}
+	}
+	return stats
+}
+
 // fetch metrics which takes "Operation" dimensions querying both ListMetrics and GetMetricsStatistics
 func fetchOperationWildcardMetrics(cw cloudwatchiface.CloudWatchAPI, mg metricsGroup, baseDimensions []*cloudwatch.Dimension) (map[string]interface{}, error) {
 	// get available dimensions
@@ -119,18 +137,7 @@ func fetchOperationWildcardMetrics(cw cloudwatchiface.CloudWatchAPI, mg metricsG
 		if dp != nil {
 			for _, met := range mg.Metrics {
 				label := strings.Replace(met.MackerelName, "#", *operation, 1)
-				switch met.Type {
-				case metricsTypeAverage:
-					stats[label] = *dp.Average
-				case metricsTypeSum:
-					stats[label] = *dp.Sum
-				case metricsTypeMaximum:
-					stats[label] = *dp.Maximum
-				case metricsTypeMinimum:
-					stats[label] = *dp.Minimum
-				case metricsTypeSampleCount:
-					stats[label] = *dp.SampleCount
-				}
+				stats = transformAndAppendDatapoint(dp, met.Type, label, stats)
 			}
 		}
 	}
@@ -177,24 +184,6 @@ func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, metric metrics
 	}
 
 	return latestDp, nil
-}
-
-func mergeStatsFromDatapoint(stats map[string]interface{}, dp *cloudwatch.Datapoint, mg metricsGroup) map[string]interface{} {
-	if dp != nil {
-		for _, met := range mg.Metrics {
-			switch met.Type {
-			case metricsTypeAverage:
-				stats[met.MackerelName] = *dp.Average
-			case metricsTypeSum:
-				stats[met.MackerelName] = *dp.Sum
-			case metricsTypeMaximum:
-				stats[met.MackerelName] = *dp.Maximum
-			case metricsTypeMinimum:
-				stats[met.MackerelName] = *dp.Minimum
-			}
-		}
-	}
-	return stats
 }
 
 var defaultMetricsGroup = []metricsGroup{
@@ -253,9 +242,11 @@ func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
 		Value: aws.String(p.TableName),
 	}}
 	for _, met := range defaultMetricsGroup {
-		v, err := getLastPointFromCloudWatch(p.CloudWatch, met, tableDimensions)
+		dp, err := getLastPointFromCloudWatch(p.CloudWatch, met, tableDimensions)
 		if err == nil {
-			stats = mergeStatsFromDatapoint(stats, v, met)
+			for _, m := range met.Metrics {
+				stats = transformAndAppendDatapoint(dp, m.Type, m.MackerelName, stats)
+			}
 		} else {
 			log.Printf("%s: %s", met, err)
 		}
