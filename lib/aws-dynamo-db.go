@@ -74,7 +74,7 @@ func (p *DynamoDBPlugin) prepare() error {
 }
 
 // getLastPoint fetches a CloudWatch metric and parse
-func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, tableName string, metric metricsGroup) (*cloudwatch.Datapoint, error) {
+func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, metric metricsGroup, dimensions []*cloudwatch.Dimension) (*cloudwatch.Datapoint, error) {
 	now := time.Now()
 	statsInput := make([]*string, len(metric.Metrics))
 	for i, typ := range metric.Metrics {
@@ -88,11 +88,8 @@ func getLastPointFromCloudWatch(cw cloudwatchiface.CloudWatchAPI, tableName stri
 		Period:     aws.Int64(60),
 		Statistics: statsInput,
 		Namespace:  aws.String(namespace),
+		Dimensions: dimensions,
 	}
-	input.Dimensions = []*cloudwatch.Dimension{{
-		Name:  aws.String("TableName"),
-		Value: aws.String(tableName),
-	}}
 	response, err := cw.GetMetricStatistics(input)
 	if err != nil {
 		return nil, err
@@ -168,8 +165,12 @@ var defaultMetricsGroup = []metricsGroup{
 func (p DynamoDBPlugin) FetchMetrics() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
+	tableDimensions := []*cloudwatch.Dimension{{
+		Name:  aws.String("TableName"),
+		Value: aws.String(p.TableName),
+	}}
 	for _, met := range defaultMetricsGroup {
-		v, err := getLastPointFromCloudWatch(p.CloudWatch, p.TableName, met)
+		v, err := getLastPointFromCloudWatch(p.CloudWatch, met, tableDimensions)
 		if err == nil {
 			stats = mergeStatsFromDatapoint(stats, v, met)
 		} else {
