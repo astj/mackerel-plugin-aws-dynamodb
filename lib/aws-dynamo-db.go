@@ -233,6 +233,15 @@ var operationalMetricsGroup = []metricsGroup{
 		{MackerelName: "SuccessfulRequestLatency.#.Maximum", Type: metricsTypeMaximum},
 		{MackerelName: "SuccessfulRequestLatency.#.Average", Type: metricsTypeAverage},
 	}},
+	{CloudWatchName: "ThrottledRequests", Metrics: []metric{
+		{MackerelName: "ThrottledRequests.#", Type: metricsTypeSampleCount},
+	}},
+	{CloudWatchName: "SystemErrors", Metrics: []metric{
+		{MackerelName: "SystemErrors.#", Type: metricsTypeSampleCount},
+	}},
+	{CloudWatchName: "UserErrors", Metrics: []metric{
+		{MackerelName: "UserErrors.#", Type: metricsTypeSampleCount},
+	}},
 }
 
 // FetchMetrics fetch the metrics
@@ -314,6 +323,27 @@ func (p DynamoDBPlugin) GraphDefinition() map[string]mp.Graphs {
 			Unit:  "integer",
 			Metrics: []mp.Metrics{
 				{Name: "ConditionalCheckFailedRequests", Label: "Counts"},
+			},
+		},
+		"ThrottledRequests": {
+			Label: (labelPrefix + " ThrottledRequests"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts", Stacked: true},
+			},
+		},
+		"SystemErrors": {
+			Label: (labelPrefix + " SystemErrors"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts", Stacked: true},
+			},
+		},
+		"UserErrors": {
+			Label: (labelPrefix + " UserErrors"),
+			Unit:  "integer",
+			Metrics: []mp.Metrics{
+				{Name: "*", Label: "Counts", Stacked: true},
 			},
 		},
 		"SuccessfulRequests": {
